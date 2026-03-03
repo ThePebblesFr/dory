@@ -3,6 +3,7 @@
 logs
 __pycache__
 application/BUILD
+application
 results/multi-dory/envPulpDory
 .DS_Store
 *DS_Store

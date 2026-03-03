@@ -17,47 +17,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-<%
-l3_supported = DORY_HW_graph[0].HW_description['memory']['levels'] > 2
-%>\
 #define DEFINE_CONSTANTS
-%if not l3_supported:
-#include "${prefix}weights.h"
-%endif
 #include "net_utils.h"
 #include "pmsis.h"
-#include "${prefix}network.h"
+#include "network.h"
 #include "directional_allocator.h"
 #include "mem.h"
 #include <string.h>
-% for layer in list_h:
-#include "${layer}"
-% endfor
+#include "FullyConnected8.h"
+#include "BNReluConvolution5.h"
+#include "BNReluConvolution7.h"
+#include "Pooling1.h"
+#include "BNReluConvolution3.h"
+#include "BNReluConvolution6.h"
+#include "BNReluConvolution0.h"
+#include "BNReluConvolution2.h"
+#include "BNReluConvolution4.h"
 
-% if sdk == 'pulp-sdk':
 #define ICACHE_CTRL_UNIT 0x10201400
 #define ICACHE_PREFETCH ICACHE_CTRL_UNIT + 0x1C
-% endif
 
-% if verbose:
 #define VERBOSE 1
-% endif
 
-% if l3_supported:
 #define L3_WEIGHTS_SIZE 4000000
 #define L3_INPUT_SIZE 1500000
 #define L3_OUTPUT_SIZE 1500000
-% endif
 static void *L3_weights = NULL;
 static void *L3_input = NULL;
 static void *L3_output = NULL;
-% if 'Yes' in performance or 'Perf_final' in verbose_level:
-int ${prefix}cycle_network_execution;
-int ${prefix}cycle_network_load;
-% endif
-% if l3_supported:
+int cycle_network_execution;
+int cycle_network_load;
 /* Moves the weights and the biases from hyperflash to hyperram */
-void ${prefix}network_initialize() {
+void network_initialize() {
 
   L3_weights = ram_malloc(L3_WEIGHTS_SIZE);
   L3_input = ram_malloc(L3_INPUT_SIZE);
@@ -70,42 +61,59 @@ void ${prefix}network_initialize() {
 #endif
 
   void *w_ptr = L3_weights;
-  for (int i = 0; i < ${weights_number}; i++) {
+  for (int i = 0; i < 8; i++) {
     size_t size = load_file_to_ram(w_ptr, L3_weights_files[i]);
     L3_weights_size[i] = size;
     w_ptr += size;
   }
 }
-% endif
 
-% if l3_supported:
 /* Remove RAM memory */
-void ${prefix}network_terminate() {
-  % if l3_supported:
+void network_terminate() {
   ram_free(L3_weights, L3_WEIGHTS_SIZE);
   ram_free(L3_input, L3_INPUT_SIZE);
   ram_free(L3_output, L3_OUTPUT_SIZE);
-  % endif
 }
-% endif
 
-void ${prefix}execute_layer_fork(void *args) {
+void execute_layer_fork(void *args) {
   layer_args_t *layer_args = (layer_args_t *)args;
-  if (pi_core_id() == 0) layer_args->L1_buffer = pmsis_l1_malloc(${l1_buffer});
+  if (pi_core_id() == 0) layer_args->L1_buffer = pmsis_l1_malloc(27000);
 
   switch (layer_args->layer_id)
   {
-% for i in range(len(DORY_HW_graph)):
-    case ${i}:
-      pi_cl_team_fork(NUM_CORES, (void *)${func_name[i]}, args);
+    case 0:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution0, args);
       break;
-% endfor
+    case 1:
+      pi_cl_team_fork(NUM_CORES, (void *)Pooling1, args);
+      break;
+    case 2:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution2, args);
+      break;
+    case 3:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution3, args);
+      break;
+    case 4:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution4, args);
+      break;
+    case 5:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution5, args);
+      break;
+    case 6:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution6, args);
+      break;
+    case 7:
+      pi_cl_team_fork(NUM_CORES, (void *)BNReluConvolution7, args);
+      break;
+    case 8:
+      pi_cl_team_fork(NUM_CORES, (void *)FullyConnected8, args);
+      break;
   }
 
-  if (pi_core_id() == 0) pmsis_l1_malloc_free(layer_args->L1_buffer, ${l1_buffer});
+  if (pi_core_id() == 0) pmsis_l1_malloc_free(layer_args->L1_buffer, 27000);
 }
 
-struct ${prefix}network_run_token ${prefix}network_run_async(void *l2_buffer, size_t l2_buffer_size, void *l2_final_output, int exec, int initial_dir${", void *L2_input_h" if not l3_supported else ""})
+struct network_run_token network_run_async(void *l2_buffer, size_t l2_buffer_size, void *l2_final_output, int exec, int initial_dir)
 {
   struct pi_device cluster_dev = {0};
   struct pi_cluster_conf conf;
@@ -113,56 +121,45 @@ struct ${prefix}network_run_token ${prefix}network_run_async(void *l2_buffer, si
   // First open the cluster
   pi_cluster_conf_init(&conf);
   conf.id=0;
-<%
-    n_args = 4 if l3_supported else 5
-%>\
-  unsigned int args[${n_args}];
+  unsigned int args[4];
   args[0] = (unsigned int) l2_buffer;
   args[1] = (unsigned int) l2_buffer_size;
   args[2] = (unsigned int) l2_final_output;
   args[3] = (unsigned int) exec;
   args[4] = (unsigned int) initial_dir;
-  % if not l3_supported:
-  args[5] = (unsigned int) L2_input_h;
-  % endif
   // open cluster...
-  pi_cluster_task(&cluster_task, ${prefix}network_run_cluster, args);
+  pi_cluster_task(&cluster_task, network_run_cluster, args);
   pi_open_from_conf(&cluster_dev, &conf);
   if (pi_cluster_open(&cluster_dev))
     return;
   // Then offload an entry point, this will get executed on the cluster controller
-  cluster_task.stack_size = ${master_stack};
-  cluster_task.slave_stack_size = ${slave_stack};
+  cluster_task.stack_size = 3800;
+  cluster_task.slave_stack_size = 3600;
   pi_cluster_send_task_to_cl(&cluster_dev, &cluster_task);
-  return (struct ${prefix}network_run_token) {
+  return (struct network_run_token) {
     .cluster_dev = cluster_dev
   };
 }
 
-void ${prefix}network_run_wait(struct ${prefix}network_run_token token)
+void network_run_wait(struct network_run_token token)
 {
   pi_cluster_close(&token.cluster_dev);
-  % if 'Perf_final' in verbose_level:
-  print_perf("Final", ${prefix}cycle_network_execution, ${MACs});
-  print_perf("Final", ${prefix}cycle_network_load, ${MACs});
-  % endif
+  print_perf("Final", cycle_network_execution, 14138880);
+  print_perf("Final", cycle_network_load, 14138880);
 }
 
-void ${prefix}network_run(void *l2_buffer, size_t l2_buffer_size, void *l2_final_output, int exec, int initial_dir${", void *L2_input_h" if not l3_supported else ""})
+void network_run(void *l2_buffer, size_t l2_buffer_size, void *l2_final_output, int exec, int initial_dir)
 {
-  ${prefix}network_run_wait(network_run_async(l2_buffer, l2_buffer_size, l2_final_output, exec, initial_dir${", L2_input_h" if not l3_supported else ""}));
+  network_run_wait(network_run_async(l2_buffer, l2_buffer_size, l2_final_output, exec, initial_dir));
 }
 
-void ${prefix}network_run_cluster(void *args) {
+void network_run_cluster(void *args) {
   unsigned int * real_args = (unsigned int *) args;
   void * l2_buffer = (void *) real_args[0];
   size_t l2_buffer_size = (size_t) real_args[1];
   void * l2_final_output = (void *) real_args[2];
   int exec = (int) real_args[3];
   int dir = (int) real_args[4];
-  % if not l3_supported:
-  void * L2_input_h = (void *)real_args[5];
-  % endif
 /*
   - initial buffer allocation L2 and L1
   - variable declaration
@@ -178,11 +175,6 @@ void ${prefix}network_run_cluster(void *args) {
 
   int residual_number = 0;
   int bypass_dimension = 0;
-  % if not l3_supported:
-  int left_branch_nodes = 0, right_branch_nodes = 0;
-  int z = 0;
-  int end_left = 0;
-  % endif
   int perf_cyc = 0;
   int perf_cyc_load = 0;
 /* ---------------------------------- */
@@ -196,19 +188,14 @@ void ${prefix}network_run_cluster(void *args) {
 /* ---------------------------------- */
 /* -------- SECTION 1 BEGIN --------- */
 /* ---------------------------------- */
-  % if not l3_supported:
-  L2_input = L2_input_h;
-% endif
   directional_allocator_init(l2_buffer, l2_buffer_size);
 
 /* ---------------------------------- */
 /* --------- SECTION 1 END ---------- */
 /* ---------------------------------- */
-% if 'Yes' in performance or 'Perf_final' in verbose_level:
   // perf measurement begin
-  ${prefix}cycle_network_execution = 0;
-  ${prefix}cycle_network_load = 0;
-% endif
+  cycle_network_execution = 0;
+  cycle_network_load = 0;
 /* MAIN SECTION
   - for loop over all the layers of the network
   - double buffering using L3
@@ -219,22 +206,19 @@ void ${prefix}network_run_cluster(void *args) {
 /* -------- SECTION 2 BEGIN --------- */
 /* ---------------------------------- */
   int weight_l_cnt = 0; // count how many layers with weights we have processed to increment the weights_L3 pointer
-  for (int i = 0; i < ${len(DORY_HW_graph)}; i++) {
+  for (int i = 0; i < 9; i++) {
 /* MEMORY ALLOCATION
   - allocate memory if layer is executed from L3;
   - allocate weights
   - read weights
 */
-% if 'Yes' in performance or 'Perf_final' in verbose_level:
     // perf measurement begin
     pi_perf_conf(1<<PI_PERF_CYCLES);
     pi_perf_reset();
     pi_perf_stop();
     pi_perf_start();
-% endif
  
     L2_output = dmalloc(activations_out_size[i], !dir);
-    % if l3_supported:
     if (L3_input_layers[i] == 1)
       L2_input = dmalloc(activations_size[i], dir);
 
@@ -243,24 +227,14 @@ void ${prefix}network_run_cluster(void *args) {
 
     if (allocate_layer[i] == 1)
       cl_ram_read(L2_weights, L3_weights_curr, weights_size[i]);
-    % else:
-    L2_weights = Weights_name[i];
-% endif
 
-% if 'Check_all' in verbose_level:
 #ifdef VERBOSE
-        % if l3_supported:
     if (L3_input_layers[i] == 1)
       printf("Input in L3\n");
     else
-% endif
     if (i == 0 || branch_change[i-1] == 0) {
       checksum("L2 input", L2_input, activations_size[i], activations_checksum[i][exec]);
-% if l3_supported:
       if (allocate_layer[i] == 1)
-% else:
-      if (layer_with_weights[i])
-% endif
         checksum("L2 weights", L2_weights, weights_size[i], weights_checksum[i]);
       else
         printf("Weights in L3\n");
@@ -268,7 +242,6 @@ void ${prefix}network_run_cluster(void *args) {
     else
       printf("Switching branch, already checked activation\n");
 #endif
-% endif
 
     layer_args_t largs = {
       .L3_input = (unsigned int) L3_input,
@@ -285,33 +258,26 @@ void ${prefix}network_run_cluster(void *args) {
       .layer_id = i
     };
 
-% if 'Yes' in performance or 'Perf_final' in verbose_level:
     // performance measurements: end
     pi_perf_stop();
     perf_cyc_load =  pi_perf_read(PI_PERF_CYCLES);
-    ${prefix}cycle_network_load += perf_cyc_load;
+    cycle_network_load += perf_cyc_load;
 
     // perf measurement begin
     pi_perf_conf(1<<PI_PERF_CYCLES);
     pi_perf_reset();
     pi_perf_stop();
     pi_perf_start();
-% endif
 
 /*
 - Execution of the layers_pointers
 */
-   ${prefix}execute_layer_fork((void *) &largs);
-% if 'Yes' in performance or 'Perf_final' in verbose_level:
+   execute_layer_fork((void *) &largs);
     // performance measurements: end
     pi_perf_stop();
     perf_cyc =  pi_perf_read(PI_PERF_CYCLES);
-    ${prefix}cycle_network_execution += perf_cyc;
-% endif
+    cycle_network_execution += perf_cyc;
 
-% if 'Yes' in performance:
-    print_perf(Layers_name[i], perf_cyc, NODEs_MACS[i]);
-% endif
 
     // TODO: What error?
     // prevents error from compiler
@@ -324,46 +290,24 @@ void ${prefix}network_run_cluster(void *args) {
 
 #ifdef VERBOSE
     printf("Layer %s %d ended: \n", Layers_name[i], i);
-% if 'Check_all' in verbose_level:
-    % if l3_supported:
     if (L3_output_layers[i]==1) {
       printf("Output in L3. Expected checksum: %d\n", activations_out_checksum[i][exec]);
     } else {
-% endif
-      checksum(i + 1 < ${len(DORY_HW_graph)} ? "L2 output" : "final output",
+      checksum(i + 1 < 9 ? "L2 output" : "final output",
                L2_output, activations_out_size[i], activations_out_checksum[i][exec]);
-      % if l3_supported:
     }
-% endif
     printf("\n");
-% elif 'Last' in verbose_level:
-    if (i == ${len(DORY_HW_graph) - 1})
-        checksum("final layer", L2_output, activations_out_size[i], activations_out_checksum[i][exec]);
-% endif
 #endif
 
     // Free memory
-    % if l3_supported:
     if (layer_with_weights[i] == 1)
       dfree(weights_size[i], dir);
     dfree(activations_size[i], dir);
-    % endif
     if (branch_input[i] == 1)
       dfree(bypass_dimension, dir);
     L2_input = L2_output;
-% if not l3_supported:
-    if  (branch_output[i]==1)
-      {
-        bypass_activations = L2_output;
-        bypass_dimension = activations_out_size[i];
-      }
-
-    if (i > 0 && branch_output[i-1] == 0 && branch_change[i-1] == 0)
-      dfree(activations_size[i], dir);
-% endif
     // Residual connections
-    if (i < ${len(DORY_HW_graph) - 1}) {
- % if l3_supported:
+    if (i < 8) {
       if (branch_input[i+1] == 1) {
         bypass_activations = dmalloc(bypass_dimension, !dir);
         residual_number--;
@@ -396,49 +340,14 @@ void ${prefix}network_run_cluster(void *args) {
       }
       if (L3_output_layers[i] == 1)
         dfree(activations_out_size[i], !dir);
- % else:
-
-      if  (branch_output[i]==1)
-      {
-        left_branch_nodes = 0;
-        right_branch_nodes = 0;
-        z = i+1;
-        end_left = 0;
-        while (branch_input[z] == 0)
-        {
-          if (end_left == 0)
-            left_branch_nodes+=1;
-          else
-            right_branch_nodes+=1;
-          if (branch_change[z] == 1)
-            end_left = 1;
-          z+=1;
-        }
-        if ((left_branch_nodes % 2 == 1) && (right_branch_nodes == 0))
-          dir = !dir;
-        if ((left_branch_nodes % 2 == 0) && (right_branch_nodes > 0))
-          dir = !dir;
-      }
-
-      if  (branch_change[i]==1)
-      {
-        L2_input = bypass_activations;
-        bypass_activations = L2_output;
-        bypass_dimension = activations_out_size[i];
-        if (right_branch_nodes % 2 == 1)
-          dir = !dir;
-      }
-% endif
     }
-% if l3_supported:
     if (layer_with_weights[i])
        L3_weights_curr += L3_weights_size[weight_l_cnt++];
-% endif
     dir = !dir;
   }
 
-  //memcpy(L2_output, l2_final_output, activations_out_size[${len(DORY_HW_graph)-1}]); // BUGGY!
-  for (int i=0; i<activations_out_size[${len(DORY_HW_graph)-1}]; i++)
+  //memcpy(L2_output, l2_final_output, activations_out_size[8]); // BUGGY!
+  for (int i=0; i<activations_out_size[8]; i++)
     *((uint8_t*)(l2_final_output+i)) = *((uint8_t*)(L2_output+i));
 
 /* ---------------------------------- */
