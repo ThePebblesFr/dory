@@ -41,6 +41,66 @@ class Pattern_rewriter:
         #     self.QAdd_pattern_rewriter(i)
         return self.graph
 
+    # def BNRelu_requant_pattern_rewriter(self, i):
+    #     DORY_BNRelu_node = DORY_node.DORY_node()
+    #     DORY_BNRelu_node.name = "BNRelu"
+    #     DORY_BNRelu_node.op_type = "BNRelu"
+    #     DORY_BNRelu_node.input_indexes = self.graph[i[0]].input_indexes
+    #     DORY_BNRelu_node.output_index = self.graph[i[-1]].output_index
+    #     DORY_BNRelu_node.number_of_input_nodes = self.graph[i[0]].number_of_input_nodes
+    #     DORY_BNRelu_node.number_of_input_constants = sum(self.graph[x].number_of_input_constants for x in i)
+    #     DORY_BNRelu_node.output_activation_bits = self.graph[i[-1]].out_bits
+    #     DORY_BNRelu_node.branch_out = None
+    #     DORY_BNRelu_node.branch_in = None
+    #     DORY_BNRelu_node.branch_change = None
+    #     DORY_BNRelu_node.branch_last = None
+    #     ### k ###
+    #     DORY_BNRelu_node.constant_names = ["outshift"]
+    #     for key, value in self.graph[i[0]].__dict__.items():
+    #         if isinstance(value, dict):
+    #             if bool(value["value"].shape):
+    #                 k = value["value"]
+    #                 DORY_BNRelu_node.k = {}
+    #                 DORY_BNRelu_node.k["value"] = k
+    #                 DORY_BNRelu_node.k["layout"] = ""
+    #                 DORY_BNRelu_node.constant_names.append("k")
+    #             else:
+    #                 DORY_BNRelu_node.name = "Requant"
+    #                 DORY_BNRelu_node.op_type = "Requant"
+    #                 outmul = value["value"]
+    #                 DORY_BNRelu_node.outmul = {}
+    #                 DORY_BNRelu_node.outmul["value"] = outmul
+    #                 DORY_BNRelu_node.outmul["layout"] = ""
+    #                 DORY_BNRelu_node.constant_names.append("outmul")
+    #     ### l ###
+    #     for key, value in self.graph[i[1]].__dict__.items():
+    #         if isinstance(value, dict):
+    #             if bool(value["value"].shape):
+    #                 l = value["value"]
+    #                 DORY_BNRelu_node.l = {}
+    #                 DORY_BNRelu_node.l["value"] = l
+    #                 DORY_BNRelu_node.l["layout"] = ""
+    #                 DORY_BNRelu_node.constant_names.append("l")
+    #             else:
+    #                 outadd = value["value"]
+    #                 DORY_BNRelu_node.outadd = {}
+    #                 DORY_BNRelu_node.outadd["value"] = outadd
+    #                 DORY_BNRelu_node.outadd["layout"] = ""
+    #                 DORY_BNRelu_node.constant_names.append("outadd")
+    #     ### outshift ###
+    #     for key, value in self.graph[i[2]].__dict__.items():
+    #         if isinstance(value, dict):
+    #             outshift = (value["value"][0] if isinstance(value["value"].tolist(),list) else value["value"])
+    #             DORY_BNRelu_node.outshift = {}
+    #             DORY_BNRelu_node.outshift["value"] = round(np.log2(outshift))
+    #             DORY_BNRelu_node.outshift["layout"] = ""
+    #     DORY_BNRelu_node.min = self.graph[i[-1]].min
+    #     DORY_BNRelu_node.max = self.graph[i[-1]].max
+    #     DORY_BNRelu_node.output_activation_type = "int" if self.graph[i[-1]].min < 0 else "uint"
+    #     for ele in sorted(i, reverse = True):
+    #         del self.graph[ele]
+    #     self.graph.insert(i[0], DORY_BNRelu_node)
+
     def BNRelu_requant_pattern_rewriter(self, i):
         DORY_BNRelu_node = DORY_node.DORY_node()
         DORY_BNRelu_node.name = "BNRelu"
@@ -49,11 +109,32 @@ class Pattern_rewriter:
         DORY_BNRelu_node.output_index = self.graph[i[-1]].output_index
         DORY_BNRelu_node.number_of_input_nodes = self.graph[i[0]].number_of_input_nodes
         DORY_BNRelu_node.number_of_input_constants = sum(self.graph[x].number_of_input_constants for x in i)
-        DORY_BNRelu_node.output_activation_bits = self.graph[i[-1]].out_bits
+
+        clip_node = self.graph[i[-1]]
+
+        out_bits = getattr(clip_node, "out_bits", None)
+        if out_bits is None:
+            out_bits = getattr(clip_node, "output_activation_bits", None)
+
+        if out_bits is None:
+            clip_min = getattr(clip_node, "min", None)
+            clip_max = getattr(clip_node, "max", None)
+
+            if clip_min is not None and clip_max is not None:
+                clip_min = int(clip_min)
+                clip_max = int(clip_max)
+
+                if clip_min == 0:
+                    out_bits = (clip_max + 1).bit_length() - 1
+                else:
+                    out_bits = (clip_max - clip_min + 1).bit_length()
+
+        DORY_BNRelu_node.output_activation_bits = out_bits
         DORY_BNRelu_node.branch_out = None
         DORY_BNRelu_node.branch_in = None
         DORY_BNRelu_node.branch_change = None
         DORY_BNRelu_node.branch_last = None
+
         ### k ###
         DORY_BNRelu_node.constant_names = ["outshift"]
         for key, value in self.graph[i[0]].__dict__.items():
@@ -72,6 +153,7 @@ class Pattern_rewriter:
                     DORY_BNRelu_node.outmul["value"] = outmul
                     DORY_BNRelu_node.outmul["layout"] = ""
                     DORY_BNRelu_node.constant_names.append("outmul")
+
         ### l ###
         for key, value in self.graph[i[1]].__dict__.items():
             if isinstance(value, dict):
@@ -87,17 +169,20 @@ class Pattern_rewriter:
                     DORY_BNRelu_node.outadd["value"] = outadd
                     DORY_BNRelu_node.outadd["layout"] = ""
                     DORY_BNRelu_node.constant_names.append("outadd")
+
         ### outshift ###
         for key, value in self.graph[i[2]].__dict__.items():
             if isinstance(value, dict):
-                outshift = (value["value"][0] if isinstance(value["value"].tolist(),list) else value["value"])
+                outshift = (value["value"][0] if isinstance(value["value"].tolist(), list) else value["value"])
                 DORY_BNRelu_node.outshift = {}
                 DORY_BNRelu_node.outshift["value"] = round(np.log2(outshift))
                 DORY_BNRelu_node.outshift["layout"] = ""
-        DORY_BNRelu_node.min = self.graph[i[-1]].min
-        DORY_BNRelu_node.max = self.graph[i[-1]].max
-        DORY_BNRelu_node.output_activation_type = "int" if self.graph[i[-1]].min < 0 else "uint"
-        for ele in sorted(i, reverse = True):
+
+        DORY_BNRelu_node.min = getattr(clip_node, "min", None)
+        DORY_BNRelu_node.max = getattr(clip_node, "max", None)
+        DORY_BNRelu_node.output_activation_type = "int" if DORY_BNRelu_node.min is not None and DORY_BNRelu_node.min < 0 else "uint"
+
+        for ele in sorted(i, reverse=True):
             del self.graph[ele]
         self.graph.insert(i[0], DORY_BNRelu_node)
 

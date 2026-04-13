@@ -34,72 +34,178 @@ class HW_node(DORY_node):
     # Class attributes
     Tiler = None
 
+    # def __init__(self, node, HW_description):
+    #     super().__init__()
+    #     self.__dict__ = node.__dict__
+    #     self.tiling_dimensions = {}
+    #     for level in range(HW_description["memory"]["levels"]):
+    #         self.tiling_dimensions["L{}".format(level+1)] = {}
+    #         self.tiling_dimensions["L{}".format(level+1)]["weights_dimensions"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["input_dimensions"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["output_dimensions"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["weight_memory"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["bias_memory"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["constants_memory"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["input_activation_memory"] = None
+    #         self.tiling_dimensions["L{}".format(level+1)]["output_activation_memory"] = None
+    #     if not isinstance(self.name, type(None)):
+    #         if "Convolution" in self.name or "FullyConnected" in self.name:
+    #             self.tiling_dimensions["L{}".format(level+1)]["weights_dimensions"] = [self.output_channels, self.input_channels]
+    #     self.tiling_dimensions["L{}".format(level+1)]["input_dimensions"] = [self.input_channels] + self.input_dimensions
+    #     self.tiling_dimensions["L{}".format(level+1)]["output_dimensions"] = [self.output_channels] + self.output_dimensions
+    #     self.tiling_dimensions["L{}".format(level+1)]["weight_memory"] = self.weight_memory
+    #     self.tiling_dimensions["L{}".format(level+1)]["bias_memory"] = self.bias_memory
+    #     self.tiling_dimensions["L{}".format(level+1)]["constants_memory"] = self.constants_memory
+    #     self.tiling_dimensions["L{}".format(level+1)]["input_activation_memory"] = self.input_activation_memory
+    #     self.tiling_dimensions["L{}".format(level+1)]["output_activation_memory"] = self.output_activation_memory
+    #     self.HW_description = HW_description
+    #     self.check_sum_w = None
+    #     self.check_sum_in = None
+    #     self.check_sum_out = None
+    #     self.L3_input = 0
+    #     try:
+    #         self.split_ints = HW_description['split_ints']
+    #     except KeyError:
+    #         self.split_ints = False
     def __init__(self, node, HW_description):
         super().__init__()
         self.__dict__ = node.__dict__
+
+        def nz(x):
+            return 0 if x is None else x
+
+        # Normalize optional memory fields on the node itself
+        self.weight_memory = nz(getattr(self, "weight_memory", 0))
+        self.bias_memory = nz(getattr(self, "bias_memory", 0))
+        self.constants_memory = nz(getattr(self, "constants_memory", 0))
+        self.input_activation_memory = nz(getattr(self, "input_activation_memory", 0))
+        self.output_activation_memory = nz(getattr(self, "output_activation_memory", 0))
+
         self.tiling_dimensions = {}
         for level in range(HW_description["memory"]["levels"]):
-            self.tiling_dimensions["L{}".format(level+1)] = {}
-            self.tiling_dimensions["L{}".format(level+1)]["weights_dimensions"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["input_dimensions"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["output_dimensions"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["weight_memory"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["bias_memory"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["constants_memory"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["input_activation_memory"] = None
-            self.tiling_dimensions["L{}".format(level+1)]["output_activation_memory"] = None
-        if not isinstance(self.name, type(None)):
-            if "Convolution" in self.name or "FullyConnected" in self.name:
-                self.tiling_dimensions["L{}".format(level+1)]["weights_dimensions"] = [self.output_channels, self.input_channels]
-        self.tiling_dimensions["L{}".format(level+1)]["input_dimensions"] = [self.input_channels] + self.input_dimensions
-        self.tiling_dimensions["L{}".format(level+1)]["output_dimensions"] = [self.output_channels] + self.output_dimensions
-        self.tiling_dimensions["L{}".format(level+1)]["weight_memory"] = self.weight_memory
-        self.tiling_dimensions["L{}".format(level+1)]["bias_memory"] = self.bias_memory
-        self.tiling_dimensions["L{}".format(level+1)]["constants_memory"] = self.constants_memory
-        self.tiling_dimensions["L{}".format(level+1)]["input_activation_memory"] = self.input_activation_memory
-        self.tiling_dimensions["L{}".format(level+1)]["output_activation_memory"] = self.output_activation_memory
+            lvl = "L{}".format(level + 1)
+            self.tiling_dimensions[lvl] = {}
+            self.tiling_dimensions[lvl]["weights_dimensions"] = None
+            self.tiling_dimensions[lvl]["input_dimensions"] = None
+            self.tiling_dimensions[lvl]["output_dimensions"] = None
+            self.tiling_dimensions[lvl]["weight_memory"] = None
+            self.tiling_dimensions[lvl]["bias_memory"] = None
+            self.tiling_dimensions[lvl]["constants_memory"] = None
+            self.tiling_dimensions[lvl]["input_activation_memory"] = None
+            self.tiling_dimensions[lvl]["output_activation_memory"] = None
+
+            if not isinstance(getattr(self, "name", None), type(None)):
+                if "Convolution" in self.name or "FullyConnected" in self.name:
+                    self.tiling_dimensions[lvl]["weights_dimensions"] = [
+                        getattr(self, "output_channels", 0),
+                        getattr(self, "input_channels", 0)
+                    ]
+
+            self.tiling_dimensions[lvl]["input_dimensions"] = [
+                getattr(self, "input_channels", 0)
+            ] + getattr(self, "input_dimensions", [])
+
+            self.tiling_dimensions[lvl]["output_dimensions"] = [
+                getattr(self, "output_channels", 0)
+            ] + getattr(self, "output_dimensions", [])
+
+            self.tiling_dimensions[lvl]["weight_memory"] = self.weight_memory
+            self.tiling_dimensions[lvl]["bias_memory"] = self.bias_memory
+            self.tiling_dimensions[lvl]["constants_memory"] = self.constants_memory
+            self.tiling_dimensions[lvl]["input_activation_memory"] = self.input_activation_memory
+            self.tiling_dimensions[lvl]["output_activation_memory"] = self.output_activation_memory
+
         self.HW_description = HW_description
         self.check_sum_w = None
         self.check_sum_in = None
         self.check_sum_out = None
         self.L3_input = 0
+
         try:
             self.split_ints = HW_description['split_ints']
         except KeyError:
             self.split_ints = False
 
+
+    # def create_tiling_dimensions(self, previous_node, config_file):
+    #     #  ATTENTION MEMORY L3 --> TILE MEMORY DIMENSION --> Decide how to set. Re-init the whole memory?
+    #     for level in np.arange(self.HW_description["memory"]["levels"],1, -1):
+    #         (weights_dim, input_dims, output_dims) = self.Tiler(self, previous_node, config_file["code reserved space"]).get_tiling(level)
+    #         self.tiling_dimensions["L{}".format(level-1)]["input_dimensions"] = input_dims
+    #         self.tiling_dimensions["L{}".format(level-1)]["output_dimensions"] = output_dims
+    #         if "Convolution" in self.name or "FullyConnected" in self.name:
+    #             self.tiling_dimensions["L{}".format(level-1)]["weights_dimensions"] = weights_dim
+    #             #groups = self.group if self.group < weights_dim[0] else
+    #             #weights_dim[0] # not really correct: If we tile a grouped
+    #             #conv, the effective number of groups is the higher of the two
+    #             #channel numbers
+    #             groups = self.group if all(self.group <= d for d in weights_dim) else max(weights_dim)
+
+    #             self.tiling_dimensions["L{}".format(level-1)]["weight_memory"] = np.prod(weights_dim)/groups*np.prod(self.kernel_shape)*self.weight_bits/8
+    #         else:
+    #             self.tiling_dimensions["L{}".format(level-1)]["weight_memory"] = 0
+    #         constants_memory = 0
+    #         bias_memory = 0
+    #         for name in self.constant_names:
+    #             if name in ["l","k"]:
+    #                 constants_memory+=weights_dim[0]*self.constant_bits/8
+    #             if "bias" in name:
+    #                 if groups == 1:
+    #                     bias_memory+=weights_dim[0]*self.bias_bits/8
+    #                 else:
+    #                     bias_memory+=weights_dim[0]*self.bias_bits/8*16
+
+    #         self.tiling_dimensions["L{}".format(level-1)]["bias_memory"] = int(bias_memory)
+    #         self.tiling_dimensions["L{}".format(level-1)]["constants_memory"] = int(constants_memory)
+    #         self.tiling_dimensions["L{}".format(level-1)]["input_activation_memory"] = np.prod(self.tiling_dimensions["L{}".format(level-1)]["input_dimensions"])*self.input_activation_bits/8
+    #         self.tiling_dimensions["L{}".format(level-1)]["output_activation_memory"] = np.prod(self.tiling_dimensions["L{}".format(level-1)]["output_dimensions"])*self.output_activation_bits/8
+
     def create_tiling_dimensions(self, previous_node, config_file):
-        #  ATTENTION MEMORY L3 --> TILE MEMORY DIMENSION --> Decide how to set. Re-init the whole memory?
-        for level in np.arange(self.HW_description["memory"]["levels"],1, -1):
-            (weights_dim, input_dims, output_dims) = self.Tiler(self, previous_node, config_file["code reserved space"]).get_tiling(level)
-            self.tiling_dimensions["L{}".format(level-1)]["input_dimensions"] = input_dims
-            self.tiling_dimensions["L{}".format(level-1)]["output_dimensions"] = output_dims
-            if "Convolution" in self.name or "FullyConnected" in self.name:
-                self.tiling_dimensions["L{}".format(level-1)]["weights_dimensions"] = weights_dim
-                #groups = self.group if self.group < weights_dim[0] else
-                #weights_dim[0] # not really correct: If we tile a grouped
-                #conv, the effective number of groups is the higher of the two
-                #channel numbers
-                groups = self.group if all(self.group <= d for d in weights_dim) else max(weights_dim)
+        is_compute_node = (
+            isinstance(getattr(self, "name", None), str)
+            and ("Convolution" in self.name or "FullyConnected" in self.name)
+        )
 
-                self.tiling_dimensions["L{}".format(level-1)]["weight_memory"] = np.prod(weights_dim)/groups*np.prod(self.kernel_shape)*self.weight_bits/8
-            else:
-                self.tiling_dimensions["L{}".format(level-1)]["weight_memory"] = 0
-            constants_memory = 0
-            bias_memory = 0
-            for name in self.constant_names:
-                if name in ["l","k"]:
-                    constants_memory+=weights_dim[0]*self.constant_bits/8
-                if "bias" in name:
-                    if groups == 1:
-                        bias_memory+=weights_dim[0]*self.bias_bits/8
-                    else:
-                        bias_memory+=weights_dim[0]*self.bias_bits/8*16
+        # Pass-through tiling for non-compute nodes such as Requant.
+        if not is_compute_node:
+            for level in np.arange(self.HW_description["memory"]["levels"], 1, -1):
+                lvl_hi = "L{}".format(level)
+                lvl_lo = "L{}".format(level - 1)
 
-            self.tiling_dimensions["L{}".format(level-1)]["bias_memory"] = int(bias_memory)
-            self.tiling_dimensions["L{}".format(level-1)]["constants_memory"] = int(constants_memory)
-            self.tiling_dimensions["L{}".format(level-1)]["input_activation_memory"] = np.prod(self.tiling_dimensions["L{}".format(level-1)]["input_dimensions"])*self.input_activation_bits/8
-            self.tiling_dimensions["L{}".format(level-1)]["output_activation_memory"] = np.prod(self.tiling_dimensions["L{}".format(level-1)]["output_dimensions"])*self.output_activation_bits/8
+                self.tiling_dimensions[lvl_lo]["weights_dimensions"] = None
+
+                self.tiling_dimensions[lvl_lo]["input_dimensions"] = self.tiling_dimensions[lvl_hi]["input_dimensions"]
+                self.tiling_dimensions[lvl_lo]["output_dimensions"] = self.tiling_dimensions[lvl_hi]["output_dimensions"]
+
+                self.tiling_dimensions[lvl_lo]["weight_memory"] = 0
+                self.tiling_dimensions[lvl_lo]["bias_memory"] = 0
+                self.tiling_dimensions[lvl_lo]["constants_memory"] = 0 if getattr(self, "constants_memory", None) is None else self.constants_memory
+                self.tiling_dimensions[lvl_lo]["input_activation_memory"] = 0 if getattr(self, "input_activation_memory", None) is None else self.input_activation_memory
+                self.tiling_dimensions[lvl_lo]["output_activation_memory"] = 0 if getattr(self, "output_activation_memory", None) is None else self.output_activation_memory
+            return
+
+        # Standard tiling path for Conv / FC.
+        for level in np.arange(self.HW_description["memory"]["levels"], 1, -1):
+            tiling = self.Tiler(self, previous_node, config_file["code reserved space"]).get_tiling(level)
+
+            if tiling is None:
+                raise RuntimeError(f"Tiling returned None for supported node {self.name} at level {level}")
+
+            (weights_dim, input_dims, output_dims) = tiling
+
+            self.tiling_dimensions["L{}".format(level)]["weights_dimensions"] = weights_dim
+            self.tiling_dimensions["L{}".format(level)]["input_dimensions"] = input_dims
+            self.tiling_dimensions["L{}".format(level)]["output_dimensions"] = output_dims
+
+            self.tiling_dimensions["L{}".format(level - 1)]["weights_dimensions"] = weights_dim
+            self.tiling_dimensions["L{}".format(level - 1)]["input_dimensions"] = input_dims
+            self.tiling_dimensions["L{}".format(level - 1)]["output_dimensions"] = output_dims
+
+            self.tiling_dimensions["L{}".format(level - 1)]["weight_memory"] = 0 if getattr(self, "weight_memory", None) is None else self.weight_memory
+            self.tiling_dimensions["L{}".format(level - 1)]["bias_memory"] = 0 if getattr(self, "bias_memory", None) is None else self.bias_memory
+            self.tiling_dimensions["L{}".format(level - 1)]["constants_memory"] = 0 if getattr(self, "constants_memory", None) is None else self.constants_memory
+            self.tiling_dimensions["L{}".format(level - 1)]["input_activation_memory"] = 0 if getattr(self, "input_activation_memory", None) is None else self.input_activation_memory
+            self.tiling_dimensions["L{}".format(level - 1)]["output_activation_memory"] = 0 if getattr(self, "output_activation_memory", None) is None else self.output_activation_memory
 
     def rename_weights(self):
         weight_name = ""
@@ -194,33 +300,48 @@ class HW_node(DORY_node):
                     except ValueError:
                         x = np.loadtxt(os.path.join(load_directory, infile), delimiter=',', dtype=np.float, usecols=[0]).astype(np.int64)
                     x = x.ravel()
-                    if self.input_activation_bits <= 8:
+
+                    # compress only for sub-byte activations
+                    if self.input_activation_bits < 8:
                         x = self._compress(x, self.input_activation_bits)
+
                 except FileNotFoundError:
                     print("========= WARNING ==========")
                     print(f"Input file {os.path.join(load_directory, 'input.txt')} not found; generating random inputs!")
-                    x = np.random.randint(low=0, high=2**8 - 1,
-                                             size=self.input_channels * self.input_dimensions[0] * self.input_dimensions[1],
-                                             dtype=np.uint8)
+                    x = np.random.randint(
+                        low=0,
+                        high=2**8 - 1,
+                        size=self.input_channels * self.input_dimensions[0] * self.input_dimensions[1],
+                        dtype=np.uint8
+                    )
             else:
                 infile = f'out_layer{node_number-1}.txt' if n_inputs == 1 else f'out_{in_idx}_layer{node_number-1}.txt'
                 try:
                     x = np.loadtxt(os.path.join(load_directory, infile), delimiter=',', dtype=np.int64, usecols=[0])
                 except ValueError:
                     x = np.loadtxt(os.path.join(load_directory, infile), delimiter=',', dtype=np.float, usecols=[0]).astype(np.int64)
-                if self.input_activation_bits <= 8:
+
+                # compress only for sub-byte activations
+                if self.input_activation_bits < 8:
                     x = self._compress(x.ravel(), self.input_activation_bits)
+                else:
+                    x = x.ravel()
 
             self.check_sum_in.append(int(sum(x)))
+
             outfile = f'out_layer{node_number}.txt' if n_inputs == 1 else f'out_{in_idx}_layer{node_number}.txt'
             try:
                 y = np.loadtxt(os.path.join(load_directory, outfile), delimiter=',', dtype=np.int64, usecols=[0])
             except ValueError:
                 y = np.loadtxt(os.path.join(load_directory, outfile), delimiter=',', dtype=np.float, usecols=[0]).astype(np.int64)
-            if self.output_activation_bits <= 8:
+
+            # compress only for sub-byte activations
+            if self.output_activation_bits < 8:
                 y = self._compress(y.ravel(), self.output_activation_bits)
             elif self.split_ints and self.output_activation_bits > 8:
                 y = self._to_uint8(y.ravel(), self.output_activation_bits)
+            else:
+                y = y.ravel()
 
             self.check_sum_out.append(int(y.sum()))
 

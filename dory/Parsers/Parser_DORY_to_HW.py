@@ -139,17 +139,58 @@ class Parser_DORY_to_HW:
                                 else:
                                     nodes_scan_2.add_existing_parameter("branch_last", 1)  
 
+    # def update_dimensions_graph(self):
+    #     print("\nUpdating dimensions of vectors inside the graph, if they do not match among nodes")
+    #     for i, node in enumerate(self.DORY_Graph):
+    #         if i > 0:
+    #             if isinstance(self.DORY_Graph[i].input_channels, type(None)):
+    #                 if "FullyConnected" in self.DORY_Graph[i].name:
+    #                     self.DORY_Graph[i].input_channels = int(self.DORY_Graph[i-1].output_channels*np.prod(self.DORY_Graph[i-1].output_dimensions))
+    #                 else:
+    #                     self.DORY_Graph[i].input_channels = self.DORY_Graph[i-1].output_channels
+    #             if len(self.DORY_Graph[i].input_dimensions)==0:
+    #                 self.DORY_Graph[i].input_dimensions = self.DORY_Graph[i-1].output_dimensions
     def update_dimensions_graph(self):
         print("\nUpdating dimensions of vectors inside the graph, if they do not match among nodes")
+
         for i, node in enumerate(self.DORY_Graph):
-            if i > 0:
-                if isinstance(self.DORY_Graph[i].input_channels, type(None)):
-                    if "FullyConnected" in self.DORY_Graph[i].name:
-                        self.DORY_Graph[i].input_channels = int(self.DORY_Graph[i-1].output_channels*np.prod(self.DORY_Graph[i-1].output_dimensions))
-                    else:
-                        self.DORY_Graph[i].input_channels = self.DORY_Graph[i-1].output_channels
-                if len(self.DORY_Graph[i].input_dimensions)==0:
-                    self.DORY_Graph[i].input_dimensions = self.DORY_Graph[i-1].output_dimensions
+            prev_node = self.DORY_Graph[i - 1] if i > 0 else None
+            next_node = self.DORY_Graph[i + 1] if i < len(self.DORY_Graph) - 1 else None
+
+            input_channels = getattr(node, "input_channels", None)
+            output_channels = getattr(node, "output_channels", None)
+            input_dimensions = getattr(node, "input_dimensions", None)
+            output_dimensions = getattr(node, "output_dimensions", None)
+
+            # infer missing input channels from previous node
+            if input_channels is None and prev_node is not None:
+                prev_out_ch = getattr(prev_node, "output_channels", None)
+                if prev_out_ch is not None:
+                    node.input_channels = prev_out_ch
+
+            # infer missing output channels from next node
+            if output_channels is None:
+                if next_node is not None:
+                    next_in_ch = getattr(next_node, "input_channels", None)
+                    if next_in_ch is not None:
+                        node.output_channels = next_in_ch
+                elif getattr(node, "input_channels", None) is not None:
+                    node.output_channels = node.input_channels
+
+            # infer missing input dimensions from previous node
+            if input_dimensions is None and prev_node is not None:
+                prev_out_dim = getattr(prev_node, "output_dimensions", None)
+                if prev_out_dim is not None:
+                    node.input_dimensions = prev_out_dim
+
+            # infer missing output dimensions from next node or fallback
+            if output_dimensions is None:
+                if next_node is not None:
+                    next_in_dim = getattr(next_node, "input_dimensions", None)
+                    if next_in_dim is not None:
+                        node.output_dimensions = next_in_dim
+                elif getattr(node, "input_dimensions", None) is not None:
+                    node.output_dimensions = node.input_dimensions
 
     def add_tensors_memory_occupation_and_MACs(self):
         print("\nUpdating memory occupation and MACs of tensors in layers")
@@ -188,6 +229,246 @@ class Parser_DORY_to_HW:
             node.add_checksum_w_integer()           
             node.add_checksum_activations_integer(self.network_directory, i, self.n_inputs)
 
+
+    # def fuse_requant_into_fullyconnected(self):
+    #     fused_graph = []
+    #     i = 0
+
+    #     while i < len(self.DORY_Graph):
+    #         node = self.DORY_Graph[i]
+
+    #         if (
+    #             i + 1 < len(self.DORY_Graph)
+    #             and getattr(node, "name", None) == "FullyConnected"
+    #             and getattr(self.DORY_Graph[i + 1], "name", None) == "Requant"
+    #         ):
+    #             fc = node
+    #             rq = self.DORY_Graph[i + 1]
+
+    #             # Fold requant parameters into the FC node
+    #             for attr in [
+    #                 "outmul",
+    #                 "outadd",
+    #                 "outshift",
+    #                 "min",
+    #                 "max",
+    #                 "output_activation_bits",
+    #                 "output_activation_type",
+    #                 "constants_memory",
+    #                 "output_activation_memory",
+    #                 "check_sum_out",
+    #             ]:
+    #                 if hasattr(rq, attr):
+    #                     setattr(fc, attr, getattr(rq, attr))
+
+    #             # FC now produces the requantized output tensor
+    #             if hasattr(rq, "output_index"):
+    #                 fc.output_index = rq.output_index
+
+    #             # Merge constant names
+    #             fc_constant_names = list(getattr(fc, "constant_names", []))
+    #             rq_constant_names = list(getattr(rq, "constant_names", []))
+    #             for c in rq_constant_names:
+    #                 if c not in fc_constant_names:
+    #                     fc_constant_names.append(c)
+    #             fc.constant_names = fc_constant_names
+
+    #             # Move actual constant tensors over
+    #             for key, value in rq.__dict__.items():
+    #                 if isinstance(value, dict) and "value" in value:
+    #                     setattr(fc, key, value)
+
+    #             # After fusion, FC output is no longer 32-bit accumulator output
+    #             # if requant specified a different output precision/type.
+    #             if hasattr(rq, "output_activation_bits"):
+    #                 fc.output_activation_bits = rq.output_activation_bits
+    #             if hasattr(rq, "output_activation_type"):
+    #                 fc.output_activation_type = rq.output_activation_type
+
+    #             fused_graph.append(fc)
+    #             i += 2
+    #             continue
+
+    #         fused_graph.append(node)
+    #         i += 1
+
+    #     self.DORY_Graph = fused_graph
+
+    def fuse_requant_into_fullyconnected(self):
+
+        def identify_fc_weight_and_bias(fc):
+            weight_key = None
+            bias_key = None
+
+            expected_weight_size = int(fc.output_channels) * int(fc.input_channels)
+            expected_bias_size = int(fc.output_channels)
+
+            candidates = []
+
+            for cname in getattr(fc, "constant_names", []):
+                if not hasattr(fc, cname):
+                    continue
+
+                entry = getattr(fc, cname)
+                if not isinstance(entry, dict) or "value" not in entry:
+                    continue
+
+                arr = np.asarray(entry["value"])
+                layout = entry.get("layout", None)
+
+                candidates.append((cname, arr, layout))
+
+            # 1. Weight must match Cout * Cin exactly
+            for cname, arr, layout in candidates:
+                if arr.size == expected_weight_size:
+                    weight_key = cname
+                    break
+
+            # 2. Bias must match Cout exactly, excluding the chosen weight
+            for cname, arr, layout in candidates:
+                if cname == weight_key:
+                    continue
+                if arr.size == expected_bias_size:
+                    bias_key = cname
+                    break
+
+            # 3. Fallbacks only if still missing
+            if weight_key is None:
+                for cname, arr, layout in candidates:
+                    if layout in ("CoutCin", "CinCout") and arr.ndim >= 2:
+                        weight_key = cname
+                        break
+
+            if bias_key is None:
+                for cname, arr, layout in candidates:
+                    if cname == weight_key:
+                        continue
+                    if arr.ndim == 1 and arr.size == expected_bias_size:
+                        bias_key = cname
+                        break
+
+            return weight_key, bias_key
+
+        fused_graph = []
+        i = 0
+
+        while i < len(self.DORY_Graph):
+            node = self.DORY_Graph[i]
+
+            if (
+                i + 1 < len(self.DORY_Graph)
+                and getattr(node, "name", None) == "FullyConnected"
+                and getattr(self.DORY_Graph[i + 1], "name", None) == "Requant"
+            ):
+                fc = node
+                rq = self.DORY_Graph[i + 1]
+
+                # Identify original FC weight and bias tensors
+                weight_key, bias_key = identify_fc_weight_and_bias(fc)
+
+                if weight_key is not None:
+                    fc.weights = getattr(fc, weight_key)
+                if bias_key is not None:
+                    fc.bias = getattr(fc, bias_key)
+
+                # Copy requant tensors explicitly
+                for key in ["outmul", "outadd", "outshift"]:
+                    if hasattr(rq, key):
+                        setattr(fc, key, getattr(rq, key))
+
+                # Fold requant scalar attributes into FC
+                for attr in [
+                    "min",
+                    "max",
+                    "output_activation_bits",
+                    "output_activation_type",
+                    "constants_memory",
+                    "output_activation_memory",
+                    "check_sum_out",
+                ]:
+                    if hasattr(rq, attr):
+                        setattr(fc, attr, getattr(rq, attr))
+
+                # FC now produces the requantized tensor
+                if hasattr(rq, "output_index"):
+                    fc.output_index = rq.output_index
+
+                # Build a clean constant order for downstream packing
+                new_constant_names = []
+                if hasattr(fc, "weights"):
+                    new_constant_names.append("weights")
+                if hasattr(fc, "bias"):
+                    new_constant_names.append("bias")
+                for key in ["outshift", "outmul", "outadd"]:
+                    if hasattr(fc, key):
+                        new_constant_names.append(key)
+
+                fc.constant_names = new_constant_names
+                fc.number_of_input_constants = len(new_constant_names)
+
+                fused_graph.append(fc)
+                i += 2
+                continue
+
+            fused_graph.append(node)
+            i += 1
+
+        self.DORY_Graph = fused_graph
+
+    def normalize_fullyconnected_constants(self):
+       
+        for node in self.DORY_Graph:
+            if getattr(node, "name", None) != "FullyConnected":
+                continue
+
+            expected_weight_vals = int(node.output_channels) * int(node.input_channels)
+            expected_bias_vals = int(node.output_channels)
+            expected_bias_bytes = expected_bias_vals * 4
+
+            weight_key = None
+            bias_key = None
+
+            for cname in getattr(node, "constant_names", []):
+                if not hasattr(node, cname):
+                    continue
+                entry = getattr(node, cname)
+                if not isinstance(entry, dict) or "value" not in entry:
+                    continue
+
+                arr = np.asarray(entry["value"])
+
+                # Weight values
+                if arr.size == expected_weight_vals and weight_key is None:
+                    weight_key = cname
+                    continue
+
+                # Bias already packed as bytes
+                if arr.size == expected_bias_bytes and bias_key is None:
+                    bias_key = cname
+                    continue
+
+                # Bias as one value per output channel
+                if arr.size == expected_bias_vals and bias_key is None:
+                    bias_key = cname
+                    continue
+
+            if weight_key is not None:
+                node.weights = getattr(node, weight_key)
+            if bias_key is not None:
+                node.bias = getattr(node, bias_key)
+
+            new_constant_names = []
+            if hasattr(node, "weights"):
+                new_constant_names.append("weights")
+            if hasattr(node, "bias"):
+                new_constant_names.append("bias")
+            for key in ["outshift", "outmul", "outadd"]:
+                if hasattr(node, key):
+                    new_constant_names.append(key)
+
+            node.constant_names = new_constant_names
+            node.number_of_input_constants = len(new_constant_names)
+
     def full_graph_parsing(self):
         print("#####################################################")
         print("## DORY GENERAL PARSING FROM DORY IR TO DORY HW IR ##")
@@ -199,6 +480,8 @@ class Parser_DORY_to_HW:
         self.Printer_Frontend.print_json_from_DORY_graph("01_DORY_HW_graph_raw", self.DORY_Graph)
         self.Printer_Frontend.print_onnx_from_DORY_graph("01_DORY_HW_graph_raw", self.DORY_Graph)
         self.update_branches_graph()
+        self.fuse_requant_into_fullyconnected()
+        self.normalize_fullyconnected_constants()
         self.Printer_Frontend.print_json_from_DORY_graph("02_DORY_HW_graph_fixed_branches", self.DORY_Graph)
         self.Printer_Frontend.print_onnx_from_DORY_graph("02_DORY_HW_graph_fixed_branches", self.DORY_Graph)
         self.update_dimensions_graph()

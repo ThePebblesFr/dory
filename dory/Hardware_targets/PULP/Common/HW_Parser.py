@@ -82,26 +82,79 @@ class onnx_manager_PULP(Parser_DORY_to_HW):
         assert weights_name is not None, f"Node  {node.name} of op {node.op_type} doesn't have weights."
         return getattr(node, weights_name)
 
+    # def adjust_node_data_layout(self, node, node_id):
+    #     if "FullyConnected" in node.name:
+    #         weights = self._get_weights_attr(node)
+    #         if weights["layout"] == "CinCout":
+    #             weights["value"] = weights["value"].T
+    #             weights["layout"] = "CoutCin"
+    #         prev_node = self.DORY_Graph[node_id-1]
+    #         if node_id != 0 and prev_node.layout == "CHW":
+    #             temp = weights["value"]
+    #             temp = temp.reshape(node.output_channels, prev_node.output_channels, prev_node.output_dimensions[0], prev_node.output_dimensions[1])
+    #             temp = np.transpose(temp, (0, 2, 3, 1))
+    #             temp = temp.flatten()
+    #             weights["value"] = temp
+    #             # needed to compute final checksum for <8b layers
+    #     elif "Convolution" in node.name:
+    #         weights = self._get_weights_attr(node)
+    #         if weights["layout"] == "CoutCinK":
+    #             if node.conv1d:
+    #                 weights["value"] = weights["value"][:,:,None,:]
+    #             weights["value"] = np.transpose(weights["value"], (0,2,3,1))
+    #             weights["layout"] = "CoutKCin"
+
     def adjust_node_data_layout(self, node, node_id):
         if "FullyConnected" in node.name:
+            expected_size = int(node.output_channels) * int(node.input_channels)
+
+            # Start from DORY's default choice.
             weights = self._get_weights_attr(node)
-            if weights["layout"] == "CinCout":
+
+            # If it picked the wrong tensor, recover the correct one by size.
+            selected_size = getattr(weights.get("value", None), "size", None)
+            if selected_size != expected_size:
+                recovered = None
+
+                for key, value in node.__dict__.items():
+                    if isinstance(value, dict) and "value" in value:
+                        arr = value["value"]
+                        arr_size = getattr(arr, "size", None)
+                        if arr_size == expected_size:
+                            recovered = value
+                            break
+
+                if recovered is not None:
+                    weights = recovered
+                else:
+                    raise ValueError(
+                        f"Could not find FC weights for node {node.name}: "
+                        f"selected size={selected_size}, expected size={expected_size}"
+                    )
+
+            if weights.get("layout", None) == "CinCout":
                 weights["value"] = weights["value"].T
                 weights["layout"] = "CoutCin"
-            prev_node = self.DORY_Graph[node_id-1]
+
+            prev_node = self.DORY_Graph[node_id - 1]
             if node_id != 0 and prev_node.layout == "CHW":
                 temp = weights["value"]
-                temp = temp.reshape(node.output_channels, prev_node.output_channels, prev_node.output_dimensions[0], prev_node.output_dimensions[1])
+                temp = temp.reshape(
+                    node.output_channels,
+                    prev_node.output_channels,
+                    prev_node.output_dimensions[0],
+                    prev_node.output_dimensions[1]
+                )
                 temp = np.transpose(temp, (0, 2, 3, 1))
                 temp = temp.flatten()
                 weights["value"] = temp
-                # needed to compute final checksum for <8b layers
+
         elif "Convolution" in node.name:
             weights = self._get_weights_attr(node)
             if weights["layout"] == "CoutCinK":
                 if node.conv1d:
-                    weights["value"] = weights["value"][:,:,None,:]
-                weights["value"] = np.transpose(weights["value"], (0,2,3,1))
+                    weights["value"] = weights["value"][:, :, None, :]
+                weights["value"] = np.transpose(weights["value"], (0, 2, 3, 1))
                 weights["layout"] = "CoutKCin"
 
     def adjust_data_layout(self):

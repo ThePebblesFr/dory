@@ -301,7 +301,7 @@ void ${prefix}network_run_cluster(void *args) {
 /*
 - Execution of the layers_pointers
 */
-   ${prefix}execute_layer_fork((void *) &largs);
+   //${prefix}execute_layer_fork((void *) &largs);
 % if 'Yes' in performance or 'Perf_final' in verbose_level:
     // performance measurements: end
     pi_perf_stop();

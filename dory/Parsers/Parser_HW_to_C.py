@@ -105,29 +105,77 @@ class Parser_HW_to_C:
             elif file_to_copy[-1] == 'h':
                 os.system('cp -L "{}" {}'.format(file_to_copy, self.inc_dir))
 
+    # def create_hex_weights_files(self):
+    #     print("\nGenerating .hex weight files.")
+    #     for i, node in enumerate(self.HWgraph):
+    #         constants = [0, 0, 0, 0]
+    #         for name in node.constant_names:
+    #             if "weight" in name:
+    #                 constants[0] = name
+    #             elif "bias" in name:
+    #                 constants[1] = name
+    #             elif "k" == name:
+    #                 constants[2] = name
+    #             elif "l" == name:
+    #                 constants[3] = name
+    #         weights = np.asarray([])
+    #         for i in np.arange(4):
+    #             if constants[i]!= 0:
+    #                 weights = np.concatenate((weights,node.__dict__[constants[i]]["value"]))
+    #         while len(weights) % 4 != 0:
+    #             weights = np.concatenate((weights, np.asarray([0])))
+    #         if weights.shape[0] != 0:
+    #             string_layer = node.prefixed_name + "_weights.hex"
+    #             save_s = os.path.join(self.hex_dir, string_layer)
+    #             weights.astype('uint8').tofile(save_s)
+
     def create_hex_weights_files(self):
+
         print("\nGenerating .hex weight files.")
-        for i, node in enumerate(self.HWgraph):
-            constants = [0, 0, 0, 0]
-            for name in node.constant_names:
-                if "weight" in name:
-                    constants[0] = name
-                elif "bias" in name:
-                    constants[1] = name
-                elif "k" == name:
-                    constants[2] = name
-                elif "l" == name:
-                    constants[3] = name
-            weights = np.asarray([])
-            for i in np.arange(4):
-                if constants[i]!= 0:
-                    weights = np.concatenate((weights,node.__dict__[constants[i]]["value"]))
-            while len(weights) % 4 != 0:
-                weights = np.concatenate((weights, np.asarray([0])))
-            if weights.shape[0] != 0:
+        for _, node in enumerate(self.HWgraph):
+            blob = np.asarray([], dtype=np.uint8)
+
+            if "FullyConnected" in node.name:
+                expected_weight_vals = int(node.output_channels) * int(node.input_channels)
+                expected_bias_bytes = int(node.output_channels) * 4
+
+                # weights
+                w = np.asarray(node.__dict__["weights"]["value"])
+                if w.dtype == np.uint8 and w.size == expected_weight_vals:
+                    arr_w = w.reshape(-1)
+                else:
+                    arr_w = w.astype(np.int8, copy=False).reshape(-1).view(np.uint8)
+
+                # bias
+                b = np.asarray(node.__dict__["bias"]["value"])
+                if b.dtype == np.uint8 and b.size == expected_bias_bytes:
+                    arr_b = b.reshape(-1)
+                else:
+                    arr_b = b.astype(np.int32, copy=False).reshape(-1).view(np.uint8)
+
+                blob = np.concatenate((arr_w, arr_b))
+
+            else:
+                for cname in getattr(node, "constant_names", []):
+                    if cname not in node.__dict__:
+                        continue
+                    value = np.asarray(node.__dict__[cname]["value"])
+                    if value.dtype == np.uint8:
+                        arr = value.reshape(-1)
+                    else:
+                        arr = value.reshape(-1)
+                        if arr.dtype.kind == "f":
+                            arr = arr.astype(np.int32, copy=False)
+                        arr = arr.view(np.uint8)
+                    blob = np.concatenate((blob, arr))
+
+            while len(blob) % 4 != 0:
+                blob = np.concatenate((blob, np.asarray([0], dtype=np.uint8)))
+
+            if blob.shape[0] != 0:
                 string_layer = node.prefixed_name + "_weights.hex"
                 save_s = os.path.join(self.hex_dir, string_layer)
-                weights.astype('uint8').tofile(save_s)
+                blob.tofile(save_s)
 
     def create_hex_input(self):
         print("\nGenerating .hex input file.")
