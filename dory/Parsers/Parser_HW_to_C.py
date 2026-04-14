@@ -183,7 +183,14 @@ class Parser_HW_to_C:
         for in_idx in range(self.n_inputs):
             infile = 'input.txt' if self.n_inputs == 1 else f'input_{in_idx}.txt'
             try:
-                x_in = np.loadtxt(os.path.join(self.network_directory, infile), delimiter=',', dtype=np.uint8, usecols=[0])
+                # x_in = np.loadtxt(os.path.join(self.network_directory, infile), delimiter=',', dtype=np.uint8, usecols=[0])
+                dtype_in = np.int8 if getattr(self.HWgraph[0], "input_signed", False) else np.uint8
+                x_in = np.loadtxt(
+                    os.path.join(self.network_directory, infile),
+                    delimiter=",",
+                    dtype=dtype_in,
+                    usecols=[0],
+                )
                 x_in = x_in.flatten()
             except FileNotFoundError:
                 print(f"========= WARNING ==========\nInput file {os.path.join(self.network_directory, 'input.txt')} not found; generating random inputs!")

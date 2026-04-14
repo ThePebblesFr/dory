@@ -296,7 +296,14 @@ class HW_node(DORY_node):
                 infile = 'input.txt' if n_inputs == 1 else f'input_{in_idx}.txt'
                 try:
                     try:
-                        x = np.loadtxt(os.path.join(load_directory, infile), delimiter=',', dtype=np.uint8, usecols=[0])
+                        # x = np.loadtxt(os.path.join(load_directory, infile), delimiter=',', dtype=np.uint8, usecols=[0])
+                        dtype_in = np.int8 if getattr(self, "input_signed", False) else np.uint8
+                        x = np.loadtxt(
+                            os.path.join(load_directory, infile),
+                            delimiter=",",
+                            dtype=dtype_in,
+                            usecols=[0],
+                        )
                     except ValueError:
                         x = np.loadtxt(os.path.join(load_directory, infile), delimiter=',', dtype=np.float, usecols=[0]).astype(np.int64)
                     x = x.ravel()

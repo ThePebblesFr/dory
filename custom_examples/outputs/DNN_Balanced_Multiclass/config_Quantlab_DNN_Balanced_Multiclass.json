@@ -1,7 +1,0 @@
-{
-  "BNRelu_bits": 64,
-  "onnx_file": "./DNN_Balanced_Multiclass.onnx",
-  "code reserved space": 92000,
-  "input_bits": 8,
-  "input_signed": false
-}

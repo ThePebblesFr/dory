@@ -17,7 +17,7 @@ networks = [
             {
                 'frontend': 'Quantlab',
                 'target': 'PULP.PULP_gvsoc',
-                'conf_file': './dory/dory_examples/config_files/config_Quantlab_ES-DNN1.json',
+                'conf_file': './dory/dory_examples/config_files/config_Quantlab_NoFS-DNN1.json',
                 'optional': 'mixed-hw'
             },
             "checksum_final": 'OK'
